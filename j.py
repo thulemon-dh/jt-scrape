@@ -186,7 +186,7 @@ async def main():
 
             checkpoint = None
             if checkpoint_path.exists() and args.checkpoint == 'use':
-                checkpoint = pl.read_parquet(employees_path)
+                checkpoint = pl.read_parquet(checkpoint_path)
 
             async with httpx.AsyncClient() as client:
                 resume_data = await fetch_resumes(client, emp_data, checkpoint)
@@ -194,10 +194,15 @@ async def main():
 
             output = (
                 emp_data.join(resume_data, 'resume').with_columns(
+                    blob=pl.col.blob.fill_null(b'')
+                ).with_columns(
                     file_type=pl.when(pl.col.blob.bin.starts_with(b'%PDF'))
                         .then(pl.lit('.pdf'))
                         .when(pl.col.blob.bin.starts_with(b'PK'))
                         .then(pl.lit('.docx'))
+                        .otherwise(pl.lit(None))
+                ).with_columns(
+                    blob=pl.when(pl.col.blob == b'').then(pl.lit(None)).otherwise(pl.col.blob)
                 )
             )
 
@@ -216,7 +221,7 @@ run the 'run' subcommand first!
             for n, r, blob, ft in with_resumes.select('name', 'resume', 'blob', 'file_type').iter_rows():
                 op = Path(args.output_dir)
                 op.mkdir(exist_ok=True)
-                with open(f'{args.output_dir}/{n.replace(' ', '_').lower()}_{r}{ft}', 'wb') as f:
+                with open(f"{args.output_dir}/{n.replace(' ', '_').lower()}_{r}{ft}", 'wb') as f:
                     f.write(blob)
 
 
